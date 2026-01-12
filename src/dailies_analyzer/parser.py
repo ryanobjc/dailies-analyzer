@@ -97,12 +97,19 @@ def extract_messages_from_bounds(
     """Extract user and assistant messages based on GPTEL_BOUNDS.
 
     Bounds indicate assistant response regions. Everything else is user input.
+
+    Note: GPTEL_BOUNDS uses Emacs buffer positions which are 1-indexed.
+    Python strings are 0-indexed, so we subtract 1 from each position.
     """
     if not bounds:
         return []
 
     messages = []
-    sorted_bounds = sorted(bounds, key=lambda x: x[0])
+    # Convert Emacs 1-indexed positions to Python 0-indexed
+    sorted_bounds = sorted(
+        [(start - 1, end - 1) for start, end in bounds],
+        key=lambda x: x[0]
+    )
 
     # Start from beginning of content
     current_pos = 0

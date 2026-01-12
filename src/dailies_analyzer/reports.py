@@ -185,10 +185,13 @@ def print_insight_detail(db: Database, insight_id: int):
 
     # Context
     console.print("[bold]Context:[/bold]")
-    console.print(f"  Topic: {insight['conversation_topic'] or 'Unknown'}")
+    conv_id = insight.get('conversation_id')
+    console.print(f"  Conversation: [dim]#{conv_id}[/dim] {insight['conversation_topic'] or 'Unknown'}")
     console.print(f"  Date: {insight['conversation_date'] or 'Unknown'}")
     console.print(f"  Model: {insight['conversation_model'] or 'Unknown'}")
     console.print(f"  File: {insight['conversation_file'] or 'Unknown'}")
+    if conv_id:
+        console.print(f"\n[dim]View full conversation: dailies conversation {conv_id}[/dim]")
 
     # Source message (truncated if long)
     if insight["message_content"]:
@@ -210,3 +213,101 @@ def print_random_insight(db: Database, category: str | None = None):
         return
 
     print_insight_detail(db, insight["id"])
+
+
+def print_deep_conversations(db: Database, limit: int = 20):
+    """Print conversations ranked by depth."""
+    convs = db.get_deep_conversations(limit)
+
+    if not convs:
+        console.print("[yellow]No conversations found.[/yellow]")
+        return
+
+    table = Table(title=f"Deepest Conversations (by message count)")
+    table.add_column("ID", style="dim", width=5, justify="right")
+    table.add_column("Topic", style="cyan", width=35)
+    table.add_column("Date", width=10)
+    table.add_column("Msgs", justify="right", width=5)
+    table.add_column("You", justify="right", width=5)
+    table.add_column("AI", justify="right", width=5)
+    table.add_column("Tokens", justify="right", width=8)
+
+    for conv in convs:
+        table.add_row(
+            str(conv["id"]),
+            (conv["topic"] or "Unknown")[:35],
+            str(conv["date"]) if conv["date"] else "",
+            str(conv["message_count"]),
+            str(conv["user_messages"]),
+            str(conv["assistant_messages"]),
+            f"{conv['total_tokens']:,}",
+        )
+
+    console.print(table)
+
+
+def print_conversation_detail(db: Database, conversation_id: int):
+    """Print detailed view of a conversation."""
+    from rich.panel import Panel
+
+    conv = db.get_conversation_by_id(conversation_id)
+
+    if not conv:
+        console.print(f"[red]Conversation #{conversation_id} not found[/red]")
+        return
+
+    # Header
+    console.print()
+    console.print(Panel(
+        f"[bold cyan]{conv['topic'] or 'Untitled'}[/bold cyan]",
+        subtitle=f"#{conv['id']} | {conv['message_count']} messages | {conv['total_tokens']:,} tokens",
+    ))
+
+    # Metadata
+    console.print(f"\n[bold]Metadata:[/bold]")
+    console.print(f"  Date: {conv['date'] or 'Unknown'}")
+    console.print(f"  Model: {conv['model'] or 'Unknown'}")
+    console.print(f"  File: {conv['file_path'] or 'Unknown'}")
+    console.print(f"  Your messages: {conv['user_messages']}")
+    console.print(f"  AI messages: {conv['assistant_messages']}")
+
+    # Get related insights
+    insights = db.conn.execute(
+        """
+        SELECT i.* FROM insights i
+        JOIN messages m ON i.message_id = m.id
+        WHERE m.conversation_id = ?
+        ORDER BY i.confidence DESC
+        """,
+        (conversation_id,),
+    ).fetchall()
+
+    if insights:
+        console.print(f"\n[bold]Extracted Insights ({len(insights)}):[/bold]")
+        category_colors = {
+            "wisdom": "yellow",
+            "programming_tip": "cyan",
+            "product_idea": "green",
+            "question": "magenta",
+        }
+        for ins in insights[:10]:
+            ins = dict(ins)
+            cat = ins['category']
+            color = category_colors.get(cat, "white")
+            console.print(f"  [dim]#{ins['id']}[/dim] [{color}]{cat}[/{color}] {ins['title']} ({ins['confidence']:.0%})")
+
+    # Show conversation preview
+    messages = db.get_conversation_messages(conversation_id)
+    console.print(f"\n[bold]Conversation Preview:[/bold]")
+
+    for i, msg in enumerate(messages[:6]):
+        role_style = "green" if msg["role"] == "user" else "blue"
+        role_label = "YOU" if msg["role"] == "user" else "AI"
+        content = msg["content"][:200]
+        if len(msg["content"]) > 200:
+            content += "..."
+        console.print(f"\n[{role_style}][{role_label}][/{role_style}]")
+        console.print(f"  {content}")
+
+    if len(messages) > 6:
+        console.print(f"\n[dim]... {len(messages) - 6} more messages ...[/dim]")

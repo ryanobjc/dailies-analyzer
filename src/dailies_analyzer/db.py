@@ -295,6 +295,7 @@ class Database:
                 i.*,
                 m.role as message_role,
                 m.content as message_content,
+                c.id as conversation_id,
                 c.topic as conversation_topic,
                 c.date as conversation_date,
                 c.model as conversation_model,
@@ -323,6 +324,73 @@ class Database:
             cursor = self.conn.execute(
                 "SELECT * FROM insights ORDER BY RANDOM() LIMIT 1"
             )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_deep_conversations(self, limit: int = 20) -> list[dict]:
+        """Get conversations ranked by depth (message count)."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            """
+            SELECT
+                c.id,
+                c.topic,
+                c.date,
+                c.model,
+                c.file_path,
+                COUNT(m.id) as message_count,
+                SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
+                SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                SUM(CASE WHEN m.role='user' THEN m.token_count ELSE 0 END) as user_tokens,
+                SUM(CASE WHEN m.role='assistant' THEN m.token_count ELSE 0 END) as assistant_tokens,
+                SUM(m.token_count) as total_tokens
+            FROM conversations c
+            JOIN messages m ON c.id = m.conversation_id
+            GROUP BY c.id
+            ORDER BY message_count DESC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+        return [dict(row) for row in cursor]
+
+    def get_conversation_messages(self, conversation_id: int) -> list[dict]:
+        """Get all messages for a conversation."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            """
+            SELECT * FROM messages
+            WHERE conversation_id = ?
+            ORDER BY id
+            """,
+            (conversation_id,),
+        )
+        return [dict(row) for row in cursor]
+
+    def get_conversation_by_id(self, conversation_id: int) -> dict | None:
+        """Get a conversation by ID with stats."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            """
+            SELECT
+                c.*,
+                COUNT(m.id) as message_count,
+                SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
+                SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                SUM(m.token_count) as total_tokens
+            FROM conversations c
+            JOIN messages m ON c.id = m.conversation_id
+            WHERE c.id = ?
+            GROUP BY c.id
+            """,
+            (conversation_id,),
+        )
         row = cursor.fetchone()
         return dict(row) if row else None
 

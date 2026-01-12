@@ -9,6 +9,8 @@ from rich.progress import Progress
 from .db import Database
 from .parser import parse_directory
 from .reports import (
+    print_conversation_detail,
+    print_deep_conversations,
     print_insight_detail,
     print_insights,
     print_model_distribution,
@@ -161,6 +163,36 @@ def random(ctx, category):
 
 
 @cli.command()
+@click.option("--limit", default=20, help="Number of conversations to show")
+@click.pass_context
+def deep(ctx, limit):
+    """Show deepest conversations by message count."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    with Database(db_path) as db:
+        print_deep_conversations(db, limit)
+
+
+@cli.command()
+@click.argument("conversation_id", type=int)
+@click.pass_context
+def conversation(ctx, conversation_id):
+    """Show detailed view of a specific conversation."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    with Database(db_path) as db:
+        print_conversation_detail(db, conversation_id)
+
+
+@cli.command()
 @click.option("--limit", default=10, help="Number of conversations to process")
 @click.option("--all", "process_all", is_flag=True, help="Process all unextracted conversations")
 @click.pass_context
@@ -186,6 +218,46 @@ def extract(ctx, limit, process_all):
         console.print(f"[cyan]Processing {len(to_process)} of {len(unextracted)} unextracted conversations...[/cyan]")
 
         extract_insights(db, to_process)
+
+
+@cli.command("batch-extract")
+@click.pass_context
+def batch_extract(ctx):
+    """Submit batch extraction job (50% cheaper, async)."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .batch import submit_batch
+
+    with Database(db_path) as db:
+        submit_batch(db)
+
+
+@cli.command("batch-status")
+@click.pass_context
+def batch_status(ctx):
+    """Check status of batch extraction job."""
+    from .batch import check_batch_status
+    check_batch_status()
+
+
+@cli.command("batch-results")
+@click.pass_context
+def batch_results(ctx):
+    """Process results from completed batch job."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .batch import process_batch_results
+
+    with Database(db_path) as db:
+        process_batch_results(db)
 
 
 if __name__ == "__main__":
