@@ -730,3 +730,98 @@ class Database:
             (min_messages,),
         )
         return [dict(row) for row in cursor]
+
+    def get_summaries_filtered(
+        self,
+        sentiment: str | None = None,
+        outcome: str | None = None,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Get summaries with conversation info, optionally filtered."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return []
+
+        conditions = []
+        params = []
+
+        if sentiment:
+            conditions.append("s.sentiment = ?")
+            params.append(sentiment)
+
+        if outcome:
+            conditions.append("s.outcome = ?")
+            params.append(outcome)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        cursor = self.conn.execute(
+            f"""
+            SELECT
+                s.*,
+                c.topic,
+                c.date,
+                c.model,
+                COUNT(m.id) as message_count
+            FROM conversation_summaries s
+            JOIN conversations c ON s.conversation_id = c.id
+            LEFT JOIN messages m ON c.id = m.conversation_id
+            WHERE {where_clause}
+            GROUP BY s.id
+            ORDER BY c.date DESC
+            """,
+            params,
+        )
+        results = [dict(row) for row in cursor]
+        return results[:limit] if limit else results
+
+    def get_sentiment_counts(self) -> list[tuple[str, int]]:
+        """Get count of summaries by sentiment."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return []
+
+        cursor = self.conn.execute("""
+            SELECT sentiment, COUNT(*) as count
+            FROM conversation_summaries
+            GROUP BY sentiment
+            ORDER BY count DESC
+        """)
+        return [(row[0], row[1]) for row in cursor]
+
+    def get_outcome_counts(self) -> list[tuple[str, int]]:
+        """Get count of summaries by outcome."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return []
+
+        cursor = self.conn.execute("""
+            SELECT outcome, COUNT(*) as count
+            FROM conversation_summaries
+            GROUP BY outcome
+            ORDER BY count DESC
+        """)
+        return [(row[0], row[1]) for row in cursor]
+
+    def get_summary_stats(self) -> dict:
+        """Get overall summary statistics."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return {"total": 0, "sentiments": [], "outcomes": []}
+
+        cursor = self.conn.execute("SELECT COUNT(*) FROM conversation_summaries")
+        total = cursor.fetchone()[0]
+
+        return {
+            "total": total,
+            "sentiments": self.get_sentiment_counts(),
+            "outcomes": self.get_outcome_counts(),
+        }

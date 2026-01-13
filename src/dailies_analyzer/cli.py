@@ -15,7 +15,9 @@ from .reports import (
     print_insights,
     print_model_distribution,
     print_random_insight,
+    print_summaries,
     print_summary,
+    print_summary_stats,
     print_tags,
     print_top_days,
     print_topic_distribution,
@@ -370,6 +372,27 @@ def batch_summary_results(ctx):
 
     with Database(db_path) as db:
         process_summary_batch_results(db)
+
+
+@cli.command()
+@click.option("--sentiment", help="Filter by sentiment (technical, exploratory, debugging, learning, etc.)")
+@click.option("--outcome", help="Filter by outcome (resolved, learning, decision_made, idea_generated, etc.)")
+@click.option("--limit", default=20, help="Maximum summaries to show")
+@click.option("--stats", "show_stats", is_flag=True, help="Show summary statistics overview")
+@click.pass_context
+def summaries(ctx, sentiment, outcome, limit, show_stats):
+    """Browse conversation summaries by sentiment and outcome."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    with Database(db_path) as db:
+        if show_stats:
+            print_summary_stats(db)
+        else:
+            print_summaries(db, sentiment=sentiment, outcome=outcome, limit=limit)
 
 
 if __name__ == "__main__":

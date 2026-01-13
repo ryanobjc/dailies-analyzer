@@ -410,3 +410,139 @@ def print_conversation_detail(db: Database, conversation_id: int):
             console.print(f"\n[dim]... {len(messages) - 6} more messages ...[/dim]")
     else:
         console.print(f"\n[dim]Message content not available in this database.[/dim]")
+
+
+def print_summary_stats(db: Database):
+    """Print summary statistics overview."""
+    stats = db.get_summary_stats()
+
+    if stats["total"] == 0:
+        console.print("[yellow]No summaries found. Run 'dailies batch-summarize' first.[/yellow]")
+        return
+
+    console.print(f"\n[bold]Summary Statistics[/bold] ({stats['total']} conversations summarized)\n")
+
+    # Sentiment distribution
+    if stats["sentiments"]:
+        table = Table(title="By Sentiment")
+        table.add_column("Sentiment", style="cyan")
+        table.add_column("Count", style="green", justify="right")
+
+        sentiment_colors = {
+            "technical": "blue",
+            "exploratory": "magenta",
+            "debugging": "red",
+            "learning": "green",
+            "planning": "yellow",
+            "creative": "cyan",
+            "frustrated": "red",
+            "collaborative": "green",
+        }
+
+        for sentiment, count in stats["sentiments"]:
+            color = sentiment_colors.get(sentiment, "white")
+            table.add_row(f"[{color}]{sentiment}[/{color}]", str(count))
+
+        console.print(table)
+
+    console.print()
+
+    # Outcome distribution
+    if stats["outcomes"]:
+        table = Table(title="By Outcome")
+        table.add_column("Outcome", style="cyan")
+        table.add_column("Count", style="green", justify="right")
+
+        outcome_colors = {
+            "resolved": "green",
+            "learning": "blue",
+            "decision_made": "yellow",
+            "idea_generated": "magenta",
+            "ongoing": "cyan",
+            "abandoned": "red",
+        }
+
+        for outcome, count in stats["outcomes"]:
+            color = outcome_colors.get(outcome, "white")
+            table.add_row(f"[{color}]{outcome}[/{color}]", str(count))
+
+        console.print(table)
+
+
+def print_summaries(
+    db: Database,
+    sentiment: str | None = None,
+    outcome: str | None = None,
+    limit: int = 20,
+):
+    """Print summaries with optional filters."""
+    import json
+
+    summaries = db.get_summaries_filtered(sentiment=sentiment, outcome=outcome, limit=limit)
+
+    if not summaries:
+        console.print("[yellow]No summaries found matching filters.[/yellow]")
+        return
+
+    # Build title
+    filters = []
+    if sentiment:
+        filters.append(f"sentiment:{sentiment}")
+    if outcome:
+        filters.append(f"outcome:{outcome}")
+    title_suffix = f" ({', '.join(filters)})" if filters else ""
+
+    table = Table(title=f"Conversation Summaries{title_suffix}")
+    table.add_column("ID", style="dim", width=5, justify="right")
+    table.add_column("Date", width=10)
+    table.add_column("Topic", style="cyan", width=30)
+    table.add_column("Sentiment", width=12)
+    table.add_column("Outcome", width=14)
+    table.add_column("Msgs", justify="right", width=4)
+
+    sentiment_colors = {
+        "technical": "blue",
+        "exploratory": "magenta",
+        "debugging": "red",
+        "learning": "green",
+        "planning": "yellow",
+        "creative": "cyan",
+        "frustrated": "red",
+        "collaborative": "green",
+    }
+
+    outcome_colors = {
+        "resolved": "green",
+        "learning": "blue",
+        "decision_made": "yellow",
+        "idea_generated": "magenta",
+        "ongoing": "cyan",
+        "abandoned": "red",
+    }
+
+    for s in summaries:
+        sent = s["sentiment"] or "unknown"
+        out = s["outcome"] or "unknown"
+        sent_color = sentiment_colors.get(sent, "white")
+        out_color = outcome_colors.get(out, "white")
+
+        table.add_row(
+            str(s["conversation_id"]),
+            str(s["date"]) if s["date"] else "",
+            (s["topic"] or "Untitled")[:30],
+            f"[{sent_color}]{sent}[/{sent_color}]",
+            f"[{out_color}]{out}[/{out_color}]",
+            str(s["message_count"]) if s["message_count"] else "",
+        )
+
+    console.print(table)
+
+    # Show details for first few
+    console.print(f"\n[bold]Summary Details:[/bold]\n")
+    for s in summaries[:5]:
+        console.print(f"[dim]#{s['conversation_id']}[/dim] [cyan]{s['topic'] or 'Untitled'}[/cyan]")
+        console.print(f"  {s['summary']}")
+        topics = json.loads(s['key_topics']) if s['key_topics'] else []
+        if topics:
+            console.print(f"  [dim]Topics: {', '.join(topics)}[/dim]")
+        console.print()
