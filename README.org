@@ -1,0 +1,109 @@
+#+title: Dailies Analyzer
+#+author: Ryan
+
+Analyze org-mode/gptel chat history for statistics and LLM-extracted insights.
+
+* Installation
+
+Requires Python 3.11+ and =uv=. Install =uv= via mise:
+
+#+begin_src bash
+mise install uv
+mise use uv
+#+end_src
+
+Create venv and install:
+
+#+begin_src bash
+uv venv --python python3
+source .venv/bin/activate
+uv pip install -e .
+#+end_src
+
+* Setup
+
+Set your Anthropic API key for insight extraction:
+
+#+begin_src bash
+export ANTHROPIC_API_KEY="sk-ant-..."
+#+end_src
+
+* Usage
+
+** Ingest your dailies
+
+#+begin_src bash
+dailies ingest ~/Documents/org-roam/daily
+#+end_src
+
+Use =--clear= to wipe and re-import:
+
+#+begin_src bash
+dailies ingest ~/Documents/org-roam/daily --clear
+#+end_src
+
+** View statistics
+
+#+begin_src bash
+dailies stats                    # summary
+dailies stats --models           # by model
+dailies stats --topics           # by topic
+dailies deep                     # deepest conversations
+#+end_src
+
+** Extract insights (batch API - 50% cheaper)
+
+#+begin_src bash
+dailies batch-extract            # submit batch job
+dailies batch-status             # check progress
+dailies batch-results            # process when complete
+#+end_src
+
+Or use synchronous extraction (slower, costs more):
+
+#+begin_src bash
+dailies extract --limit 10       # extract 10 conversations
+dailies extract --all            # extract all
+#+end_src
+
+** Browse insights
+
+#+begin_src bash
+dailies insights                              # top insights
+dailies insights --category wisdom            # filter by type
+dailies insights --tag kubernetes             # filter by tag
+dailies insights --tag rust --category programming_tip  # combine filters
+dailies insights --bottom                     # lowest confidence
+
+dailies insight 123                           # view specific insight
+dailies random                                # random insight
+dailies random --category product_idea        # random product idea
+#+end_src
+
+** Browse tags
+
+#+begin_src bash
+dailies tags                     # top tags by usage
+dailies tags --limit 100         # more tags
+#+end_src
+
+** Browse conversations
+
+#+begin_src bash
+dailies deep                     # deepest conversations by message count
+dailies conversation 725         # view specific conversation
+#+end_src
+
+* Data Storage
+
+- Database: =~/.dailies-analyzer/dailies.db=
+- Batch state: =~/.dailies-analyzer/batch_state.json=
+
+* Categories
+
+Insights are extracted into four categories:
+
+- *wisdom* - Hard-won insights, mental models, architectural principles
+- *programming_tip* - Code patterns, debugging techniques, tool recommendations
+- *product_idea* - Business opportunities, feature ideas, tool ideas
+- *question* - Deep questions worth revisiting
