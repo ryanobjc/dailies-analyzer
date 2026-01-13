@@ -16,6 +16,7 @@ from .reports import (
     print_model_distribution,
     print_random_insight,
     print_summary,
+    print_tags,
     print_top_days,
     print_topic_distribution,
 )
@@ -117,11 +118,12 @@ def stats(ctx, top, models, topics):
 
 @cli.command()
 @click.option("--category", type=click.Choice(["wisdom", "product_idea", "programming_tip", "question"]))
+@click.option("--tag", help="Filter by tag")
 @click.option("--limit", default=20, help="Maximum insights to show")
 @click.option("--bottom", is_flag=True, help="Show lowest confidence instead of highest")
 @click.pass_context
-def insights(ctx, category, limit, bottom):
-    """Show extracted insights."""
+def insights(ctx, category, tag, limit, bottom):
+    """Show extracted insights. Use --category and --tag together to intersect."""
     db_path = ctx.obj["db_path"]
 
     if not db_path.exists():
@@ -129,7 +131,22 @@ def insights(ctx, category, limit, bottom):
         return
 
     with Database(db_path) as db:
-        print_insights(db, category, limit, bottom)
+        print_insights(db, category, tag, limit, bottom)
+
+
+@cli.command()
+@click.option("--limit", default=50, help="Maximum tags to show")
+@click.pass_context
+def tags(ctx, limit):
+    """Show top tags by usage count."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    with Database(db_path) as db:
+        print_tags(db, limit)
 
 
 @cli.command()

@@ -113,19 +113,28 @@ def print_topic_distribution(db: Database, limit: int = 20):
 def print_insights(
     db: Database,
     category: str | None = None,
+    tag: str | None = None,
     limit: int = 20,
     bottom: bool = False,
 ):
     """Print extracted insights."""
     import json
 
-    insights = db.get_insights(category, ascending=bottom)[:limit]
+    insights = db.get_insights_filtered(
+        tag=tag, category=category, ascending=bottom, limit=limit
+    )
 
     if not insights:
-        console.print("[yellow]No insights found. Run 'dailies extract' first.[/yellow]")
+        console.print("[yellow]No insights found matching filters.[/yellow]")
         return
 
-    title_suffix = f" ({category})" if category else ""
+    # Build title
+    filters = []
+    if category:
+        filters.append(category)
+    if tag:
+        filters.append(f"tag:{tag}")
+    title_suffix = f" ({', '.join(filters)})" if filters else ""
     title_order = " - Lowest Confidence" if bottom else ""
     table = Table(title=f"Insights{title_suffix}{title_order}")
     table.add_column("ID", style="dim", width=6, justify="right")
@@ -213,6 +222,71 @@ def print_random_insight(db: Database, category: str | None = None):
         return
 
     print_insight_detail(db, insight["id"])
+
+
+def print_tags(db: Database, limit: int = 50):
+    """Print tags sorted by usage count."""
+    tags = db.get_tag_counts(limit)
+
+    if not tags:
+        console.print("[yellow]No tags found. Run extraction first.[/yellow]")
+        return
+
+    total_tags = len(db.get_tag_counts())
+
+    table = Table(title=f"Top {min(limit, len(tags))} Tags (of {total_tags} unique)")
+    table.add_column("Tag", style="cyan")
+    table.add_column("Count", style="green", justify="right")
+
+    for tag, count in tags:
+        table.add_row(tag, str(count))
+
+    console.print(table)
+
+
+def print_insights_by_tag(
+    db: Database,
+    tag: str,
+    limit: int = 20,
+    bottom: bool = False,
+):
+    """Print insights filtered by tag."""
+    import json
+
+    insights = db.get_insights_by_tag(tag, ascending=bottom, limit=limit)
+
+    if not insights:
+        console.print(f"[yellow]No insights found with tag '{tag}'[/yellow]")
+        return
+
+    title_order = " - Lowest Confidence" if bottom else ""
+    table = Table(title=f"Insights tagged '{tag}'{title_order}")
+    table.add_column("ID", style="dim", width=6, justify="right")
+    table.add_column("Category", style="magenta", width=15)
+    table.add_column("Title", style="cyan", width=40)
+    table.add_column("Confidence", justify="right", width=10)
+
+    for insight in insights:
+        table.add_row(
+            str(insight["id"]),
+            insight["category"],
+            insight["title"],
+            f"{insight['confidence']:.0%}",
+        )
+
+    console.print(table)
+
+    # Print details for top insights
+    label = "Bottom" if bottom else "Top"
+    console.print(f"\n[bold]{label} Insight Details:[/bold]\n")
+    for insight in insights[:5]:
+        console.print(f"[dim]#{insight['id']}[/dim] [cyan]{insight['title']}[/cyan]")
+        console.print(f"  Category: {insight['category']}")
+        console.print(f"  {insight['summary']}")
+        tags = json.loads(insight["tags"]) if insight["tags"] else []
+        if tags:
+            console.print(f"  Tags: {', '.join(tags)}")
+        console.print()
 
 
 def print_deep_conversations(db: Database, limit: int = 20):

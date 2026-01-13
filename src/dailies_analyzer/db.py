@@ -394,6 +394,62 @@ class Database:
         row = cursor.fetchone()
         return dict(row) if row else None
 
+    def get_tag_counts(self, limit: int | None = None) -> list[tuple[str, int]]:
+        """Get tags sorted by usage count."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        # SQLite JSON extraction - get all tags and count them
+        cursor = self.conn.execute("""
+            WITH tag_entries AS (
+                SELECT json_each.value as tag
+                FROM insights, json_each(insights.tags)
+                WHERE insights.tags IS NOT NULL AND insights.tags != '[]'
+            )
+            SELECT tag, COUNT(*) as count
+            FROM tag_entries
+            GROUP BY tag
+            ORDER BY count DESC
+        """)
+        results = [(row[0], row[1]) for row in cursor]
+        return results[:limit] if limit else results
+
+    def get_insights_filtered(
+        self,
+        tag: str | None = None,
+        category: str | None = None,
+        ascending: bool = False,
+        limit: int | None = None,
+    ) -> list[dict]:
+        """Get insights filtered by tag and/or category."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        order = "ASC" if ascending else "DESC"
+        conditions = []
+        params = []
+
+        if tag:
+            conditions.append("tags LIKE ?")
+            params.append(f'%"{tag}"%')
+
+        if category:
+            conditions.append("category = ?")
+            params.append(category)
+
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+
+        cursor = self.conn.execute(
+            f"""
+            SELECT * FROM insights
+            WHERE {where_clause}
+            ORDER BY confidence {order}
+            """,
+            params,
+        )
+        results = [dict(row) for row in cursor]
+        return results[:limit] if limit else results
+
     def get_unextracted_conversations(self) -> list[dict]:
         """Get conversations that haven't had insights extracted yet."""
         if not self.conn:
