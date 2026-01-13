@@ -121,10 +121,42 @@ dailies deep                     # deepest conversations by message count
 dailies conversation 725         # view specific conversation
 #+end_src
 
+** Summarize conversations (batch API - 50% cheaper)
+
+Generate AI summaries with sentiment and outcome classification:
+
+#+begin_src bash
+dailies batch-summarize          # submit batch job
+dailies batch-summary-status     # check progress
+dailies batch-summary-results    # process when complete
+#+end_src
+
+Or use synchronous summarization (slower, costs more):
+
+#+begin_src bash
+dailies summarize --limit 10     # summarize 10 conversations
+dailies summarize --all          # summarize all
+#+end_src
+
+** Browse summaries
+
+#+begin_src bash
+dailies summaries                              # list all summaries
+dailies summaries --stats                      # sentiment/outcome distribution
+dailies summaries --sentiment exploratory      # filter by sentiment
+dailies summaries --outcome resolved           # filter by outcome
+dailies summaries --sentiment debugging --outcome ongoing  # combine filters
+#+end_src
+
+Sentiments: =technical=, =exploratory=, =learning=, =debugging=, =planning=, =creative=, =frustrated=, =collaborative=
+
+Outcomes: =resolved=, =learning=, =decision_made=, =idea_generated=, =ongoing=, =abandoned=
+
 * Data Storage
 
 - Database: =~/.dailies-analyzer/dailies.db=
-- Batch state: =~/.dailies-analyzer/batch_state.json=
+- Insight batch state: =~/.dailies-analyzer/batch_state.json=
+- Summary batch state: =~/.dailies-analyzer/summary_batch_state.json=
 
 * Categories
 
