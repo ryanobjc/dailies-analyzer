@@ -52,3 +52,15 @@ class Insight:
     tags: list[str]
     confidence: float
     extracted_at: datetime = field(default_factory=datetime.now)
+
+
+@dataclass
+class ConversationSummary:
+    """A summary of a conversation."""
+
+    conversation_id: int
+    summary: str
+    key_topics: list[str]
+    sentiment: str  # technical, exploratory, frustrated, collaborative, etc.
+    outcome: str    # resolved, ongoing, abandoned, learning
+    summarized_at: datetime = field(default_factory=datetime.now)

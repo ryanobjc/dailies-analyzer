@@ -301,5 +301,76 @@ def batch_results(ctx):
         process_batch_results(db)
 
 
+@cli.command()
+@click.option("--limit", default=10, help="Number of conversations to summarize")
+@click.option("--all", "process_all", is_flag=True, help="Summarize all unsummarized conversations")
+@click.option("--min-messages", default=4, help="Minimum messages for a conversation to be summarized")
+@click.pass_context
+def summarize(ctx, limit, process_all, min_messages):
+    """Summarize conversations using Claude Opus (sync, slower)."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .summarizer import summarize_conversations
+
+    with Database(db_path) as db:
+        db.init_schema()  # Ensure new table exists
+        unsummarized = db.get_unsummarized_conversations(min_messages)
+
+        if not unsummarized:
+            console.print("[green]All conversations have been summarized![/green]")
+            return
+
+        to_process = unsummarized if process_all else unsummarized[:limit]
+        console.print(f"[cyan]Summarizing {len(to_process)} of {len(unsummarized)} unsummarized conversations...[/cyan]")
+
+        summarize_conversations(db, to_process)
+
+
+@cli.command("batch-summarize")
+@click.option("--min-messages", default=4, help="Minimum messages for a conversation to be summarized")
+@click.pass_context
+def batch_summarize(ctx, min_messages):
+    """Submit batch summarization job (50% cheaper, async)."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .batch import submit_summary_batch
+
+    with Database(db_path) as db:
+        db.init_schema()  # Ensure new table exists
+        submit_summary_batch(db, min_messages)
+
+
+@cli.command("batch-summary-status")
+@click.pass_context
+def batch_summary_status(ctx):
+    """Check status of batch summarization job."""
+    from .batch import check_summary_batch_status
+    check_summary_batch_status()
+
+
+@cli.command("batch-summary-results")
+@click.pass_context
+def batch_summary_results(ctx):
+    """Process results from completed batch summarization job."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .batch import process_summary_batch_results
+
+    with Database(db_path) as db:
+        process_summary_batch_results(db)
+
+
 if __name__ == "__main__":
     cli()

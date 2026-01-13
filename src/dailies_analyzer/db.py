@@ -6,7 +6,7 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Iterator
 
-from .models import Conversation, DailyStats, Insight, Message
+from .models import Conversation, ConversationSummary, DailyStats, Insight, Message
 
 EXPORT_SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -95,10 +95,22 @@ CREATE TABLE IF NOT EXISTS insights (
     FOREIGN KEY (message_id) REFERENCES messages(id)
 );
 
+CREATE TABLE IF NOT EXISTS conversation_summaries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    conversation_id INTEGER UNIQUE NOT NULL,
+    summary TEXT NOT NULL,
+    key_topics TEXT,  -- JSON array
+    sentiment TEXT,   -- overall tone: technical, exploratory, frustrated, etc.
+    outcome TEXT,     -- resolved, ongoing, abandoned, learning
+    summarized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_messages_conversation ON messages(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_messages_role ON messages(role);
 CREATE INDEX IF NOT EXISTS idx_conversations_date ON conversations(date);
 CREATE INDEX IF NOT EXISTS idx_insights_category ON insights(category);
+CREATE INDEX IF NOT EXISTS idx_summaries_conversation ON conversation_summaries(conversation_id);
 """
 
 
@@ -648,4 +660,73 @@ class Database:
             )
             ORDER BY c.date
         """)
+        return [dict(row) for row in cursor]
+
+    def insert_summary(self, summary: ConversationSummary) -> int:
+        """Insert or update a conversation summary. Returns summary ID."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            """
+            INSERT OR REPLACE INTO conversation_summaries
+            (conversation_id, summary, key_topics, sentiment, outcome, summarized_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                summary.conversation_id,
+                summary.summary,
+                json.dumps(summary.key_topics),
+                summary.sentiment,
+                summary.outcome,
+                summary.summarized_at,
+            ),
+        )
+        self.conn.commit()
+        return cursor.lastrowid
+
+    def has_summaries_table(self) -> bool:
+        """Check if this database has a conversation_summaries table."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_summaries'"
+        )
+        return cursor.fetchone() is not None
+
+    def get_summary(self, conversation_id: int) -> dict | None:
+        """Get summary for a conversation."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return None
+
+        cursor = self.conn.execute(
+            "SELECT * FROM conversation_summaries WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+        row = cursor.fetchone()
+        return dict(row) if row else None
+
+    def get_unsummarized_conversations(self, min_messages: int = 4) -> list[dict]:
+        """Get conversations that haven't been summarized yet."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            """
+            SELECT c.*, COUNT(m.id) as message_count
+            FROM conversations c
+            JOIN messages m ON c.id = m.conversation_id
+            WHERE NOT EXISTS (
+                SELECT 1 FROM conversation_summaries s
+                WHERE s.conversation_id = c.id
+            )
+            GROUP BY c.id
+            HAVING message_count >= ?
+            ORDER BY c.date
+            """,
+            (min_messages,),
+        )
         return [dict(row) for row in cursor]

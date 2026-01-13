@@ -322,6 +322,7 @@ def print_deep_conversations(db: Database, limit: int = 20):
 
 def print_conversation_detail(db: Database, conversation_id: int):
     """Print detailed view of a conversation."""
+    import json
     from rich.panel import Panel
 
     conv = db.get_conversation_by_id(conversation_id)
@@ -344,6 +345,16 @@ def print_conversation_detail(db: Database, conversation_id: int):
     console.print(f"  File: {conv['file_path'] or 'Unknown'}")
     console.print(f"  Your messages: {conv['user_messages']}")
     console.print(f"  AI messages: {conv['assistant_messages']}")
+
+    # Summary (if available)
+    summary = db.get_summary(conversation_id)
+    if summary:
+        console.print(f"\n[bold]Summary:[/bold]")
+        console.print(f"  {summary['summary']}")
+        topics = json.loads(summary['key_topics']) if summary['key_topics'] else []
+        if topics:
+            console.print(f"  Topics: {', '.join(topics)}")
+        console.print(f"  Sentiment: {summary['sentiment']} | Outcome: {summary['outcome']}")
 
     # Get related insights
     if db.has_messages_table():
