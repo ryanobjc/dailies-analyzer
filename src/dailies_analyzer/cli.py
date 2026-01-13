@@ -15,6 +15,7 @@ from .reports import (
     print_insights,
     print_model_distribution,
     print_random_insight,
+    print_search_results,
     print_summaries,
     print_summary,
     print_summary_stats,
@@ -393,6 +394,22 @@ def summaries(ctx, sentiment, outcome, limit, show_stats):
             print_summary_stats(db)
         else:
             print_summaries(db, sentiment=sentiment, outcome=outcome, limit=limit)
+
+
+@cli.command()
+@click.argument("query")
+@click.option("--limit", default=50, help="Maximum results to show")
+@click.pass_context
+def search(ctx, query, limit):
+    """Search conversations by message content or summary text."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    with Database(db_path) as db:
+        print_search_results(db, query, limit)
 
 
 if __name__ == "__main__":

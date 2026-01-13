@@ -546,3 +546,70 @@ def print_summaries(
         if topics:
             console.print(f"  [dim]Topics: {', '.join(topics)}[/dim]")
         console.print()
+
+
+def print_search_results(db: Database, query: str, limit: int = 50):
+    """Print search results for conversations matching query in summaries."""
+    import json
+
+    results = db.search_conversations(query, limit)
+
+    if not results:
+        console.print(f"[yellow]No conversations found matching '{query}'[/yellow]")
+        console.print("[dim]Note: Search requires summaries. Run 'dailies batch-summarize' first.[/dim]")
+        return
+
+    table = Table(title=f"Search Results for '{query}' ({len(results)} matches)")
+    table.add_column("ID", style="dim", justify="right")
+    table.add_column("Date")
+    table.add_column("Topic", style="cyan")
+    table.add_column("Sentiment")
+    table.add_column("Outcome")
+
+    sentiment_colors = {
+        "technical": "blue",
+        "exploratory": "magenta",
+        "debugging": "red",
+        "learning": "green",
+        "planning": "yellow",
+        "creative": "cyan",
+        "frustrated": "red",
+        "collaborative": "green",
+    }
+
+    outcome_colors = {
+        "resolved": "green",
+        "learning": "blue",
+        "decision_made": "yellow",
+        "idea_generated": "magenta",
+        "ongoing": "cyan",
+        "abandoned": "red",
+    }
+
+    for r in results:
+        sent = r["sentiment"] or "unknown"
+        out = r["outcome"] or "unknown"
+        sent_color = sentiment_colors.get(sent, "white")
+        out_color = outcome_colors.get(out, "white")
+
+        table.add_row(
+            str(r["id"]),
+            str(r["date"]) if r["date"] else "",
+            (r["topic"] or "Untitled")[:35],
+            f"[{sent_color}]{sent}[/{sent_color}]",
+            f"[{out_color}]{out}[/{out_color}]",
+        )
+
+    console.print(table)
+
+    # Show summaries for matches
+    console.print(f"\n[bold]Matching Summaries:[/bold]\n")
+    for r in results[:5]:
+        console.print(f"[dim]#{r['id']}[/dim] [cyan]{r['topic'] or 'Untitled'}[/cyan]")
+        console.print(f"  {r['summary']}")
+        topics = json.loads(r['key_topics']) if r['key_topics'] else []
+        if topics:
+            console.print(f"  [dim]Topics: {', '.join(topics)}[/dim]")
+        console.print()
+
+    console.print(f"[dim]View a conversation: dailies conversation <id>[/dim]")

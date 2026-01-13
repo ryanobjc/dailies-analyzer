@@ -825,3 +825,34 @@ class Database:
             "sentiments": self.get_sentiment_counts(),
             "outcomes": self.get_outcome_counts(),
         }
+
+    def search_conversations(self, query: str, limit: int = 50) -> list[dict]:
+        """Search conversations by summary text and key topics."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        if not self.has_summaries_table():
+            return []
+
+        search_pattern = f"%{query}%"
+
+        cursor = self.conn.execute(
+            """
+            SELECT
+                c.id,
+                c.topic,
+                c.date,
+                c.model,
+                s.summary,
+                s.key_topics,
+                s.sentiment,
+                s.outcome
+            FROM conversations c
+            JOIN conversation_summaries s ON c.id = s.conversation_id
+            WHERE s.summary LIKE ? OR s.key_topics LIKE ?
+            ORDER BY c.date DESC
+            LIMIT ?
+            """,
+            (search_pattern, search_pattern, limit),
+        )
+        return [dict(row) for row in cursor]
