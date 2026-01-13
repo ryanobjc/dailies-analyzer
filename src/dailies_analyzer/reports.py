@@ -346,15 +346,26 @@ def print_conversation_detail(db: Database, conversation_id: int):
     console.print(f"  AI messages: {conv['assistant_messages']}")
 
     # Get related insights
-    insights = db.conn.execute(
-        """
-        SELECT i.* FROM insights i
-        JOIN messages m ON i.message_id = m.id
-        WHERE m.conversation_id = ?
-        ORDER BY i.confidence DESC
-        """,
-        (conversation_id,),
-    ).fetchall()
+    if db.has_messages_table():
+        insights = db.conn.execute(
+            """
+            SELECT i.* FROM insights i
+            JOIN messages m ON i.message_id = m.id
+            WHERE m.conversation_id = ?
+            ORDER BY i.confidence DESC
+            """,
+            (conversation_id,),
+        ).fetchall()
+    else:
+        # Export DB: insights linked directly to conversation_id
+        insights = db.conn.execute(
+            """
+            SELECT * FROM insights
+            WHERE conversation_id = ?
+            ORDER BY confidence DESC
+            """,
+            (conversation_id,),
+        ).fetchall()
 
     if insights:
         console.print(f"\n[bold]Extracted Insights ({len(insights)}):[/bold]")
@@ -372,16 +383,19 @@ def print_conversation_detail(db: Database, conversation_id: int):
 
     # Show conversation preview
     messages = db.get_conversation_messages(conversation_id)
-    console.print(f"\n[bold]Conversation Preview:[/bold]")
+    if messages:
+        console.print(f"\n[bold]Conversation Preview:[/bold]")
 
-    for i, msg in enumerate(messages[:6]):
-        role_style = "green" if msg["role"] == "user" else "blue"
-        role_label = "YOU" if msg["role"] == "user" else "AI"
-        content = msg["content"][:200]
-        if len(msg["content"]) > 200:
-            content += "..."
-        console.print(f"\n[{role_style}][{role_label}][/{role_style}]")
-        console.print(f"  {content}")
+        for i, msg in enumerate(messages[:6]):
+            role_style = "green" if msg["role"] == "user" else "blue"
+            role_label = "YOU" if msg["role"] == "user" else "AI"
+            content = msg["content"][:200]
+            if len(msg["content"]) > 200:
+                content += "..."
+            console.print(f"\n[{role_style}][{role_label}][/{role_style}]")
+            console.print(f"  {content}")
 
-    if len(messages) > 6:
-        console.print(f"\n[dim]... {len(messages) - 6} more messages ...[/dim]")
+        if len(messages) > 6:
+            console.print(f"\n[dim]... {len(messages) - 6} more messages ...[/dim]")
+    else:
+        console.print(f"\n[dim]Message content not available in this database.[/dim]")

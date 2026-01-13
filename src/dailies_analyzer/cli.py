@@ -237,6 +237,30 @@ def extract(ctx, limit, process_all):
         extract_insights(db, to_process)
 
 
+@cli.command()
+@click.argument("output", type=click.Path())
+@click.pass_context
+def export(ctx, output):
+    """Export database for sharing (without message content)."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    output_path = Path(output)
+
+    with Database(db_path) as db:
+        stats = db.export_to_file(output_path)
+
+    console.print(f"[green]Exported to {output_path}[/green]")
+    console.print(f"  Conversations: {stats['conversations']}")
+    console.print(f"  Daily stats: {stats['daily_stats']}")
+    console.print(f"  Insights: {stats['insights']}")
+    console.print(f"  Tags: {stats['tags']}")
+    console.print(f"\n[dim]Message content excluded for privacy.[/dim]")
+
+
 @cli.command("batch-extract")
 @click.pass_context
 def batch_extract(ctx):

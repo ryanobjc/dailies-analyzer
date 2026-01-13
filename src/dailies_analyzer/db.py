@@ -8,6 +8,49 @@ from typing import Iterator
 
 from .models import Conversation, DailyStats, Insight, Message
 
+EXPORT_SCHEMA = """
+CREATE TABLE IF NOT EXISTS conversations (
+    id INTEGER PRIMARY KEY,
+    file_path TEXT,
+    date DATE,
+    topic TEXT,
+    model TEXT,
+    message_count INTEGER,
+    user_messages INTEGER,
+    assistant_messages INTEGER,
+    total_tokens INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS daily_stats (
+    date DATE PRIMARY KEY,
+    total_messages INTEGER,
+    user_messages INTEGER,
+    assistant_messages INTEGER,
+    user_tokens INTEGER,
+    assistant_tokens INTEGER,
+    conversation_count INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS insights (
+    id INTEGER PRIMARY KEY,
+    conversation_id INTEGER,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    tags TEXT,
+    confidence REAL,
+    extracted_at TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS tags (
+    tag TEXT PRIMARY KEY,
+    count INTEGER
+);
+
+CREATE INDEX IF NOT EXISTS idx_insights_category ON insights(category);
+CREATE INDEX IF NOT EXISTS idx_insights_confidence ON insights(confidence);
+"""
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +108,18 @@ class Database:
     def __init__(self, db_path: str | Path):
         self.db_path = Path(db_path)
         self.conn: sqlite3.Connection | None = None
+        self._has_messages_table: bool | None = None
+
+    def has_messages_table(self) -> bool:
+        """Check if this database has a messages table (full DB vs export)."""
+        if self._has_messages_table is None:
+            if not self.conn:
+                raise RuntimeError("Database not connected")
+            cursor = self.conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='messages'"
+            )
+            self._has_messages_table = cursor.fetchone() is not None
+        return self._has_messages_table
 
     def connect(self) -> sqlite3.Connection:
         """Connect to the database."""
@@ -289,24 +344,44 @@ class Database:
         if not self.conn:
             raise RuntimeError("Database not connected")
 
-        cursor = self.conn.execute(
-            """
-            SELECT
-                i.*,
-                m.role as message_role,
-                m.content as message_content,
-                c.id as conversation_id,
-                c.topic as conversation_topic,
-                c.date as conversation_date,
-                c.model as conversation_model,
-                c.file_path as conversation_file
-            FROM insights i
-            LEFT JOIN messages m ON i.message_id = m.id
-            LEFT JOIN conversations c ON m.conversation_id = c.id
-            WHERE i.id = ?
-            """,
-            (insight_id,),
-        )
+        if self.has_messages_table():
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    i.*,
+                    m.role as message_role,
+                    m.content as message_content,
+                    c.id as conversation_id,
+                    c.topic as conversation_topic,
+                    c.date as conversation_date,
+                    c.model as conversation_model,
+                    c.file_path as conversation_file
+                FROM insights i
+                LEFT JOIN messages m ON i.message_id = m.id
+                LEFT JOIN conversations c ON m.conversation_id = c.id
+                WHERE i.id = ?
+                """,
+                (insight_id,),
+            )
+        else:
+            # Export DB: insights linked directly to conversation_id
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    i.*,
+                    NULL as message_role,
+                    NULL as message_content,
+                    i.conversation_id as conversation_id,
+                    c.topic as conversation_topic,
+                    c.date as conversation_date,
+                    c.model as conversation_model,
+                    c.file_path as conversation_file
+                FROM insights i
+                LEFT JOIN conversations c ON i.conversation_id = c.id
+                WHERE i.id = ?
+                """,
+                (insight_id,),
+            )
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -332,34 +407,52 @@ class Database:
         if not self.conn:
             raise RuntimeError("Database not connected")
 
-        cursor = self.conn.execute(
-            """
-            SELECT
-                c.id,
-                c.topic,
-                c.date,
-                c.model,
-                c.file_path,
-                COUNT(m.id) as message_count,
-                SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
-                SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
-                SUM(CASE WHEN m.role='user' THEN m.token_count ELSE 0 END) as user_tokens,
-                SUM(CASE WHEN m.role='assistant' THEN m.token_count ELSE 0 END) as assistant_tokens,
-                SUM(m.token_count) as total_tokens
-            FROM conversations c
-            JOIN messages m ON c.id = m.conversation_id
-            GROUP BY c.id
-            ORDER BY message_count DESC
-            LIMIT ?
-            """,
-            (limit,),
-        )
+        if self.has_messages_table():
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    c.id,
+                    c.topic,
+                    c.date,
+                    c.model,
+                    c.file_path,
+                    COUNT(m.id) as message_count,
+                    SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
+                    SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                    SUM(CASE WHEN m.role='user' THEN m.token_count ELSE 0 END) as user_tokens,
+                    SUM(CASE WHEN m.role='assistant' THEN m.token_count ELSE 0 END) as assistant_tokens,
+                    SUM(m.token_count) as total_tokens
+                FROM conversations c
+                JOIN messages m ON c.id = m.conversation_id
+                GROUP BY c.id
+                ORDER BY message_count DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        else:
+            # Export database has stats pre-computed
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    id, topic, date, model, file_path,
+                    message_count, user_messages, assistant_messages,
+                    total_tokens
+                FROM conversations
+                ORDER BY message_count DESC
+                LIMIT ?
+                """,
+                (limit,),
+            )
         return [dict(row) for row in cursor]
 
     def get_conversation_messages(self, conversation_id: int) -> list[dict]:
-        """Get all messages for a conversation."""
+        """Get all messages for a conversation. Returns empty list for export DB."""
         if not self.conn:
             raise RuntimeError("Database not connected")
+
+        if not self.has_messages_table():
+            return []
 
         cursor = self.conn.execute(
             """
@@ -376,21 +469,28 @@ class Database:
         if not self.conn:
             raise RuntimeError("Database not connected")
 
-        cursor = self.conn.execute(
-            """
-            SELECT
-                c.*,
-                COUNT(m.id) as message_count,
-                SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
-                SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
-                SUM(m.token_count) as total_tokens
-            FROM conversations c
-            JOIN messages m ON c.id = m.conversation_id
-            WHERE c.id = ?
-            GROUP BY c.id
-            """,
-            (conversation_id,),
-        )
+        if self.has_messages_table():
+            cursor = self.conn.execute(
+                """
+                SELECT
+                    c.*,
+                    COUNT(m.id) as message_count,
+                    SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
+                    SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                    SUM(m.token_count) as total_tokens
+                FROM conversations c
+                JOIN messages m ON c.id = m.conversation_id
+                WHERE c.id = ?
+                GROUP BY c.id
+                """,
+                (conversation_id,),
+            )
+        else:
+            # Export database has stats pre-computed in conversations table
+            cursor = self.conn.execute(
+                "SELECT * FROM conversations WHERE id = ?",
+                (conversation_id,),
+            )
         row = cursor.fetchone()
         return dict(row) if row else None
 
@@ -449,6 +549,90 @@ class Database:
         )
         results = [dict(row) for row in cursor]
         return results[:limit] if limit else results
+
+    def export_to_file(self, output_path: Path) -> dict:
+        """Export database without message content for sharing.
+
+        Returns stats about what was exported.
+        """
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        import sqlite3
+
+        # Create new database
+        if output_path.exists():
+            output_path.unlink()
+
+        export_conn = sqlite3.connect(output_path)
+        export_conn.executescript(EXPORT_SCHEMA)
+
+        # Export conversations with stats (no messages)
+        cursor = self.conn.execute("""
+            SELECT
+                c.id,
+                c.file_path,
+                c.date,
+                c.topic,
+                c.model,
+                COUNT(m.id) as message_count,
+                SUM(CASE WHEN m.role='user' THEN 1 ELSE 0 END) as user_messages,
+                SUM(CASE WHEN m.role='assistant' THEN 1 ELSE 0 END) as assistant_messages,
+                SUM(m.token_count) as total_tokens
+            FROM conversations c
+            LEFT JOIN messages m ON c.id = m.conversation_id
+            GROUP BY c.id
+        """)
+        conversations = cursor.fetchall()
+        export_conn.executemany(
+            "INSERT INTO conversations VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            conversations
+        )
+
+        # Export daily_stats
+        cursor = self.conn.execute("SELECT * FROM daily_stats")
+        daily_stats = cursor.fetchall()
+        export_conn.executemany(
+            "INSERT INTO daily_stats VALUES (?, ?, ?, ?, ?, ?, ?)",
+            daily_stats
+        )
+
+        # Export insights (linked to conversation_id instead of message_id)
+        cursor = self.conn.execute("""
+            SELECT
+                i.id,
+                m.conversation_id,
+                i.category,
+                i.title,
+                i.summary,
+                i.tags,
+                i.confidence,
+                i.extracted_at
+            FROM insights i
+            LEFT JOIN messages m ON i.message_id = m.id
+        """)
+        insights = cursor.fetchall()
+        export_conn.executemany(
+            "INSERT INTO insights VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            insights
+        )
+
+        # Export tag counts
+        tag_counts = self.get_tag_counts()
+        export_conn.executemany(
+            "INSERT INTO tags VALUES (?, ?)",
+            tag_counts
+        )
+
+        export_conn.commit()
+        export_conn.close()
+
+        return {
+            "conversations": len(conversations),
+            "daily_stats": len(daily_stats),
+            "insights": len(insights),
+            "tags": len(tag_counts),
+        }
 
     def get_unextracted_conversations(self) -> list[dict]:
         """Get conversations that haven't had insights extracted yet."""
