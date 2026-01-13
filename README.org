@@ -3,6 +3,33 @@
 
 Analyze org-mode/gptel chat history for statistics and LLM-extracted insights.
 
+* Quick Start (for exported databases)
+
+If you received an =export.db= file, you can browse insights without any API keys:
+
+#+begin_src bash
+# Install
+mise install uv && mise use uv
+uv venv --python python3 && source .venv/bin/activate
+uv pip install -e .
+
+# Browse insights
+dailies --db /path/to/export.db insights
+dailies --db /path/to/export.db insights --category wisdom
+dailies --db /path/to/export.db insights --tag kubernetes
+dailies --db /path/to/export.db insight 123          # view specific insight
+dailies --db /path/to/export.db random               # random insight
+
+# Browse by conversation
+dailies --db /path/to/export.db deep                 # deepest conversations
+dailies --db /path/to/export.db conversation 525     # view conversation metadata
+
+# Browse tags
+dailies --db /path/to/export.db tags
+#+end_src
+
+Note: Exported databases contain insights and statistics but not message content (for privacy).
+
 * Installation
 
 Requires Python 3.11+ and =uv=. Install =uv= via mise:
