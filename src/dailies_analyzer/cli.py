@@ -213,34 +213,6 @@ def conversation(ctx, conversation_id):
 
 
 @cli.command()
-@click.option("--limit", default=10, help="Number of conversations to process")
-@click.option("--all", "process_all", is_flag=True, help="Process all unextracted conversations")
-@click.pass_context
-def extract(ctx, limit, process_all):
-    """Extract insights using Claude API."""
-    db_path = ctx.obj["db_path"]
-
-    if not db_path.exists():
-        console.print(f"[red]Database not found at {db_path}[/red]")
-        return
-
-    # Import here to avoid loading anthropic unless needed
-    from .extractor import extract_insights
-
-    with Database(db_path) as db:
-        unextracted = db.get_unextracted_conversations()
-
-        if not unextracted:
-            console.print("[green]All conversations have been processed![/green]")
-            return
-
-        to_process = unextracted if process_all else unextracted[:limit]
-        console.print(f"[cyan]Processing {len(to_process)} of {len(unextracted)} unextracted conversations...[/cyan]")
-
-        extract_insights(db, to_process)
-
-
-@cli.command()
 @click.argument("output", type=click.Path())
 @click.pass_context
 def export(ctx, output):
@@ -302,35 +274,6 @@ def batch_results(ctx):
 
     with Database(db_path) as db:
         process_batch_results(db)
-
-
-@cli.command()
-@click.option("--limit", default=10, help="Number of conversations to summarize")
-@click.option("--all", "process_all", is_flag=True, help="Summarize all unsummarized conversations")
-@click.option("--min-messages", default=4, help="Minimum messages for a conversation to be summarized")
-@click.pass_context
-def summarize(ctx, limit, process_all, min_messages):
-    """Summarize conversations using Claude Opus (sync, slower)."""
-    db_path = ctx.obj["db_path"]
-
-    if not db_path.exists():
-        console.print(f"[red]Database not found at {db_path}[/red]")
-        return
-
-    from .summarizer import summarize_conversations
-
-    with Database(db_path) as db:
-        db.init_schema()  # Ensure new table exists
-        unsummarized = db.get_unsummarized_conversations(min_messages)
-
-        if not unsummarized:
-            console.print("[green]All conversations have been summarized![/green]")
-            return
-
-        to_process = unsummarized if process_all else unsummarized[:limit]
-        console.print(f"[cyan]Summarizing {len(to_process)} of {len(unsummarized)} unsummarized conversations...[/cyan]")
-
-        summarize_conversations(db, to_process)
 
 
 @cli.command("batch-summarize")

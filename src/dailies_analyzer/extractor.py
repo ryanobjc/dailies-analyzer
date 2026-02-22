@@ -1,17 +1,8 @@
 """LLM-powered insight extraction using Claude API."""
 
 import json
-import os
-from datetime import datetime
-
-from anthropic import Anthropic
-from rich.console import Console
-from rich.progress import Progress
 
 from .db import Database
-from .models import Insight
-
-console = Console()
 
 EXTRACTION_PROMPT = """Analyze this conversation between a senior engineer (25+ years experience) and an AI assistant.
 
@@ -91,89 +82,3 @@ def parse_json_response(content: str) -> list[dict]:
     return json.loads(content)
 
 
-def extract_from_conversation(
-    client: Anthropic, conversation_text: str, topic: str | None, date: str | None
-) -> list[dict]:
-    """Extract insights from a single conversation using Claude."""
-    prompt = EXTRACTION_PROMPT.format(
-        conversation=conversation_text,
-        topic=topic or "Unknown",
-        date=date or "Unknown",
-    )
-
-    try:
-        response = client.messages.create(
-            model="claude-sonnet-4-20250514",
-            max_tokens=4096,
-            messages=[{"role": "user", "content": prompt}],
-        )
-
-        content = response.content[0].text
-        insights = parse_json_response(content)
-        return insights if isinstance(insights, list) else []
-
-    except json.JSONDecodeError as e:
-        console.print(f"[yellow]Failed to parse JSON response: {e}[/yellow]")
-        return []
-    except Exception as e:
-        console.print(f"[red]API error: {e}[/red]")
-        return []
-
-
-def extract_insights(db: Database, conversations: list[dict]):
-    """Extract insights from a list of conversations."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        console.print("[red]ANTHROPIC_API_KEY environment variable not set[/red]")
-        return
-
-    client = Anthropic(api_key=api_key)
-    total_insights = 0
-
-    with Progress() as progress:
-        task = progress.add_task("Extracting insights...", total=len(conversations))
-
-        for conv in conversations:
-            conv_id = conv["id"]
-            conv_text = get_conversation_text(db, conv_id)
-            topic = conv.get("topic")
-            date = conv.get("date")
-
-            # Skip very short conversations
-            if len(conv_text) < 200:
-                progress.advance(task)
-                continue
-
-            # Truncate very long conversations
-            if len(conv_text) > 50000:
-                conv_text = conv_text[:50000] + "\n[TRUNCATED]"
-
-            insights_data = extract_from_conversation(client, conv_text, topic, date)
-
-            # Get first message ID for this conversation to link insights
-            cursor = db.conn.execute(
-                "SELECT id FROM messages WHERE conversation_id = ? LIMIT 1",
-                (conv_id,),
-            )
-            row = cursor.fetchone()
-            message_id = row["id"] if row else None
-
-            for data in insights_data:
-                try:
-                    insight = Insight(
-                        message_id=message_id,
-                        category=data["category"],
-                        title=data["title"],
-                        summary=data["summary"],
-                        tags=data.get("tags", []),
-                        confidence=float(data.get("confidence", 0.5)),
-                        extracted_at=datetime.now(),
-                    )
-                    db.insert_insight(insight)
-                    total_insights += 1
-                except (KeyError, ValueError) as e:
-                    console.print(f"[yellow]Skipping malformed insight: {e}[/yellow]")
-
-            progress.advance(task)
-
-    console.print(f"[green]Extracted {total_insights} insights from {len(conversations)} conversations[/green]")
