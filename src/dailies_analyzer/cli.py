@@ -340,10 +340,56 @@ def summaries(ctx, sentiment, outcome, limit, show_stats):
 
 
 @cli.command()
+@click.pass_context
+def embed(ctx):
+    """Generate embeddings for all conversations using local MLX model."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        return
+
+    from .embeddings import embed_conversations
+
+    with Database(db_path) as db:
+        db.init_schema()
+
+        already = db.get_embedded_conversation_ids()
+        cursor = db.conn.execute("SELECT COUNT(*) FROM conversations")
+        total = cursor.fetchone()[0]
+
+        if len(already) == total:
+            console.print(f"[green]All {total} conversations already embedded.[/green]")
+            return
+
+        console.print(
+            f"[cyan]Embedding conversations... ({len(already)} already done, "
+            f"{total - len(already)} remaining)[/cyan]"
+        )
+
+        embedded = 0
+        skipped = 0
+        with Progress() as progress:
+            task = progress.add_task("Embedding...", total=total - len(already))
+            prev = 0
+            for done, batch_total in embed_conversations(db):
+                progress.update(task, advance=done - prev)
+                prev = done
+                embedded = done
+            # Final skipped count comes from the generator finishing
+            skipped = (total - len(already)) - embedded
+
+        console.print(f"[green]Done![/green] Embedded {embedded} conversations.")
+        if skipped:
+            console.print(f"[yellow]Skipped {skipped} conversations (no message content).[/yellow]")
+
+
+@cli.command()
 @click.argument("query")
 @click.option("--limit", default=50, help="Maximum results to show")
+@click.option("--semantic", is_flag=True, help="Use semantic search via local embeddings")
 @click.pass_context
-def search(ctx, query, limit):
+def search(ctx, query, limit, semantic):
     """Search conversations by message content or summary text."""
     db_path = ctx.obj["db_path"]
 
@@ -352,7 +398,18 @@ def search(ctx, query, limit):
         return
 
     with Database(db_path) as db:
-        print_search_results(db, query, limit)
+        if semantic:
+            from .embeddings import semantic_search
+
+            if not db.has_embeddings_table() or not db.get_all_embeddings():
+                console.print("[red]No embeddings found.[/red]")
+                console.print("Run 'dailies embed' first to generate embeddings.")
+                return
+
+            results = semantic_search(db, query, limit)
+            print_search_results(db, query, limit, results=results)
+        else:
+            print_search_results(db, query, limit)
 
 
 if __name__ == "__main__":

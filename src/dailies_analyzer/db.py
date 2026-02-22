@@ -47,6 +47,14 @@ CREATE TABLE IF NOT EXISTS tags (
     count INTEGER
 );
 
+CREATE TABLE IF NOT EXISTS conversation_embeddings (
+    conversation_id INTEGER PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_insights_category ON insights(category);
 CREATE INDEX IF NOT EXISTS idx_insights_confidence ON insights(confidence);
 """
@@ -103,6 +111,14 @@ CREATE TABLE IF NOT EXISTS conversation_summaries (
     sentiment TEXT,   -- overall tone: technical, exploratory, frustrated, etc.
     outcome TEXT,     -- resolved, ongoing, abandoned, learning
     summarized_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (conversation_id) REFERENCES conversations(id)
+);
+
+CREATE TABLE IF NOT EXISTS conversation_embeddings (
+    conversation_id INTEGER PRIMARY KEY,
+    embedding BLOB NOT NULL,
+    model TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (conversation_id) REFERENCES conversations(id)
 );
 
@@ -825,6 +841,49 @@ class Database:
             "sentiments": self.get_sentiment_counts(),
             "outcomes": self.get_outcome_counts(),
         }
+
+    def has_embeddings_table(self) -> bool:
+        """Check if this database has a conversation_embeddings table."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+        cursor = self.conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='conversation_embeddings'"
+        )
+        return cursor.fetchone() is not None
+
+    def insert_embedding(self, conversation_id: int, embedding_bytes: bytes, model: str):
+        """Insert or replace an embedding for a conversation."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        self.conn.execute(
+            """
+            INSERT OR REPLACE INTO conversation_embeddings (conversation_id, embedding, model)
+            VALUES (?, ?, ?)
+            """,
+            (conversation_id, embedding_bytes, model),
+        )
+        self.conn.commit()
+
+    def get_all_embeddings(self) -> list[tuple[int, bytes]]:
+        """Get all conversation embeddings as (conversation_id, embedding_blob) tuples."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            "SELECT conversation_id, embedding FROM conversation_embeddings"
+        )
+        return [(row[0], row[1]) for row in cursor]
+
+    def get_embedded_conversation_ids(self) -> set[int]:
+        """Get set of conversation IDs that already have embeddings."""
+        if not self.conn:
+            raise RuntimeError("Database not connected")
+
+        cursor = self.conn.execute(
+            "SELECT conversation_id FROM conversation_embeddings"
+        )
+        return {row[0] for row in cursor}
 
     def search_conversations(self, query: str, limit: int = 50) -> list[dict]:
         """Search conversations by summary text and key topics."""

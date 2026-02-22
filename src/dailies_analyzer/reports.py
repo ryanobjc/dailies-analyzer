@@ -548,21 +548,36 @@ def print_summaries(
         console.print()
 
 
-def print_search_results(db: Database, query: str, limit: int = 50):
-    """Print search results for conversations matching query in summaries."""
+def print_search_results(
+    db: Database, query: str, limit: int = 50, results: list[dict] | None = None
+):
+    """Print search results for conversations matching query.
+
+    If results are provided (e.g. from semantic search), use those directly.
+    Otherwise fall back to keyword search via db.search_conversations().
+    """
     import json
 
-    results = db.search_conversations(query, limit)
+    is_semantic = results is not None
+
+    if results is None:
+        results = db.search_conversations(query, limit)
 
     if not results:
         console.print(f"[yellow]No conversations found matching '{query}'[/yellow]")
-        console.print("[dim]Note: Search requires summaries. Run 'dailies batch-summarize' first.[/dim]")
+        if not is_semantic:
+            console.print(
+                "[dim]Note: Search requires summaries. Run 'dailies batch-summarize' first.[/dim]"
+            )
         return
 
-    table = Table(title=f"Search Results for '{query}' ({len(results)} matches)")
+    title_prefix = "Semantic" if is_semantic else "Search"
+    table = Table(title=f"{title_prefix} Results for '{query}' ({len(results)} matches)")
     table.add_column("ID", style="dim", justify="right")
     table.add_column("Date")
     table.add_column("Topic", style="cyan")
+    if is_semantic:
+        table.add_column("Score", justify="right")
     table.add_column("Sentiment")
     table.add_column("Outcome")
 
@@ -587,29 +602,39 @@ def print_search_results(db: Database, query: str, limit: int = 50):
     }
 
     for r in results:
-        sent = r["sentiment"] or "unknown"
-        out = r["outcome"] or "unknown"
+        sent = (r.get("sentiment") or "unknown")
+        out = (r.get("outcome") or "unknown")
         sent_color = sentiment_colors.get(sent, "white")
         out_color = outcome_colors.get(out, "white")
 
-        table.add_row(
+        row = [
             str(r["id"]),
-            str(r["date"]) if r["date"] else "",
-            (r["topic"] or "Untitled")[:35],
+            str(r["date"]) if r.get("date") else "",
+            (r.get("topic") or "Untitled")[:35],
+        ]
+        if is_semantic:
+            row.append(f"{r.get('similarity', 0):.3f}")
+        row.extend([
             f"[{sent_color}]{sent}[/{sent_color}]",
             f"[{out_color}]{out}[/{out_color}]",
-        )
+        ])
+
+        table.add_row(*row)
 
     console.print(table)
 
     # Show summaries for matches
-    console.print(f"\n[bold]Matching Summaries:[/bold]\n")
+    console.print("\n[bold]Matching Summaries:[/bold]\n")
     for r in results[:5]:
-        console.print(f"[dim]#{r['id']}[/dim] [cyan]{r['topic'] or 'Untitled'}[/cyan]")
-        console.print(f"  {r['summary']}")
-        topics = json.loads(r['key_topics']) if r['key_topics'] else []
+        score_str = f" [dim]({r['similarity']:.3f})[/dim]" if is_semantic else ""
+        console.print(
+            f"[dim]#{r['id']}[/dim] [cyan]{r.get('topic') or 'Untitled'}[/cyan]{score_str}"
+        )
+        if r.get("summary"):
+            console.print(f"  {r['summary']}")
+        topics = json.loads(r["key_topics"]) if r.get("key_topics") else []
         if topics:
             console.print(f"  [dim]Topics: {', '.join(topics)}[/dim]")
         console.print()
 
-    console.print(f"[dim]View a conversation: dailies conversation <id>[/dim]")
+    console.print("[dim]View a conversation: dailies conversation <id>[/dim]")
