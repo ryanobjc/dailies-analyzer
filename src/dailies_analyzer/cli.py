@@ -11,6 +11,7 @@ from .parser import parse_directory
 from .reports import (
     print_conversation_detail,
     print_deep_conversations,
+    print_histogram,
     print_insight_detail,
     print_insights,
     print_model_distribution,
@@ -117,6 +118,23 @@ def stats(ctx, top, models, topics):
             console.print()
 
         print_top_days(db, top)
+
+
+@cli.command()
+@click.option("--by", "period", type=click.Choice(["month", "week"]), default="month", help="Group by month or week")
+@click.option("--metric", type=click.Choice(["messages", "conversations", "tokens"]), default="tokens", help="Metric to display")
+@click.pass_context
+def histogram(ctx, period, metric):
+    """Show a text-based histogram of AI usage over time."""
+    db_path = ctx.obj["db_path"]
+
+    if not db_path.exists():
+        console.print(f"[red]Database not found at {db_path}[/red]")
+        console.print("Run 'dailies ingest <directory>' first.")
+        return
+
+    with Database(db_path) as db:
+        print_histogram(db, period, metric)
 
 
 @cli.command()

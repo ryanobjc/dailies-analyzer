@@ -119,6 +119,42 @@ def get_model_distribution(db: Database) -> dict[str, int]:
     return {row["model"]: row["count"] for row in cursor}
 
 
+def get_histogram_data(
+    db: Database, period: str = "month", metric: str = "messages"
+) -> list[tuple[str, int]]:
+    """Get usage data grouped by time period for histogram display.
+
+    Args:
+        db: Database instance
+        period: "month" or "week"
+        metric: "messages", "conversations", or "tokens"
+
+    Returns:
+        List of (label, value) tuples sorted chronologically.
+    """
+    daily_stats = db.get_daily_stats()
+    if not daily_stats:
+        return []
+
+    buckets: dict[str, int] = defaultdict(int)
+
+    for s in daily_stats:
+        if period == "week":
+            iso = s.date.isocalendar()
+            label = f"{iso[0]}-W{iso[1]:02d}"
+        else:
+            label = s.date.strftime("%Y-%m")
+
+        if metric == "conversations":
+            buckets[label] += s.conversation_count
+        elif metric == "tokens":
+            buckets[label] += s.user_tokens + s.assistant_tokens
+        else:
+            buckets[label] += s.total_messages
+
+    return sorted(buckets.items())
+
+
 def get_topic_distribution(db: Database) -> dict[str, int]:
     """Get distribution of conversations by topic."""
     if not db.conn:

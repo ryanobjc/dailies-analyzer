@@ -5,6 +5,7 @@ from rich.table import Table
 
 from .db import Database
 from .stats import (
+    get_histogram_data,
     get_model_distribution,
     get_summary_stats,
     get_top_days,
@@ -546,6 +547,52 @@ def print_summaries(
         if topics:
             console.print(f"  [dim]Topics: {', '.join(topics)}[/dim]")
         console.print()
+
+
+def print_histogram(db: Database, period: str = "month", metric: str = "messages"):
+    """Print a text-based bar chart of usage over time."""
+    data = get_histogram_data(db, period, metric)
+
+    if not data:
+        console.print("[yellow]No data found. Run 'dailies ingest' first.[/yellow]")
+        return
+
+    max_value = max(v for _, v in data)
+    if max_value == 0:
+        console.print("[yellow]All values are zero.[/yellow]")
+        return
+
+    # Label width: longest label + padding
+    label_width = max(len(label) for label, _ in data)
+    # Value width: formatted number
+    value_width = len(f"{max_value:,}")
+    # Available width for bars: terminal - label - value - separators
+    bar_budget = console.width - label_width - value_width - 4
+    if bar_budget < 10:
+        bar_budget = 10
+
+    # Sub-block characters for smooth scaling
+    blocks = " ▏▎▍▌▋▊▉█"
+
+    period_label = "Month" if period == "month" else "Week"
+    console.print(f"\n[bold]AI Usage by {period_label} ({metric})[/bold]\n")
+
+    for label, value in data:
+        # Calculate bar length in eighths
+        eighths = int(round(value / max_value * bar_budget * 8))
+        full_blocks = eighths // 8
+        remainder = eighths % 8
+        bar = "█" * full_blocks
+        if remainder:
+            bar += blocks[remainder]
+
+        console.print(
+            f"[cyan]{label:>{label_width}}[/cyan]  "
+            f"[green]{bar}[/green]"
+            f"  {value:>{value_width},}"
+        )
+
+    console.print()
 
 
 def print_search_results(
